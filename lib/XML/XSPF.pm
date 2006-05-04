@@ -14,7 +14,7 @@ use XML::Writer;
 
 use XML::XSPF::Track;
 
-our $VERSION  = '0.5';
+our $VERSION  = '0.5.1';
 
 our %defaults = (
 	'version' => 1,
