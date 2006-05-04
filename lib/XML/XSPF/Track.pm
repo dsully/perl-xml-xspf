@@ -5,7 +5,7 @@ package XML::XSPF::Track;
 use strict;
 use base qw(XML::XSPF::Base);
 
-INIT {
+{
 	my $class = __PACKAGE__;
 
 	$class->mk_accessors(qw(

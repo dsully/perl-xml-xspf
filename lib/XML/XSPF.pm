@@ -23,7 +23,7 @@ our %defaults = (
 	'creator' => 'kermit the frog',
 );
 
-INIT {
+{
 	my $class = __PACKAGE__;
 
 	# Public Methods
