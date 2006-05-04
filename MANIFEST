@@ -1,0 +1,15 @@
+Changes
+Makefile.PL
+MANIFEST
+README
+t/01use.t
+t/02pod.t
+t/03version0.t
+t/04version1.t
+t/05generate.t
+lib/XML/XSPF.pm
+lib/XML/XSPF/Base.pm
+lib/XML/XSPF/Track.pm
+data/v0.xspf
+data/v1.xspf
+META.yml                                 Module meta-data (added by MakeMaker)
