@@ -1,5 +1,12 @@
 Revision history for Perl extension XML::XSPF.
 
+0.6   Mon May  8 10:29:46 PDT 2006
+
+	- Pass & Fail all testcases from
+	  http://svn.xiph.org/trunk/xspf/testcase/
+
+	  except the extension specific cases which are not yet supported.
+
 0.5.1 Thu May  4 15:39:22 PDT 2006
 
 	- Removed INIT blocks - they were causing dynamic loading to fail.

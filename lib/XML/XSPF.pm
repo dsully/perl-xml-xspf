@@ -14,13 +14,40 @@ use XML::Writer;
 
 use XML::XSPF::Track;
 
-our $VERSION  = '0.5.1';
+our $VERSION  = '0.6';
 
 our %defaults = (
 	'version' => 1,
 	'xmlns'   => 'http://xspf.org/ns/0/',
 	'title'   => 'gone with the schwinn',
 	'creator' => 'kermit the frog',
+);
+
+my @singleValueElements = qw(
+	annotation album creator date duration identifier 
+	image info license location title trackNum
+);
+
+my %uriElements = (
+
+	'playlist' => {
+		'identifier' => 1,
+		'image'      => 1,
+		'info'       => 1,
+		'license'    => 1,
+		'link'       => 1,
+		'location'   => 1,
+		'meta'       => 1,
+	},
+
+	'track' => {
+		'identifier' => 1,
+		'image'      => 1,
+		'info'       => 1,
+		'link'       => 1,
+		'location'   => 1,
+		'meta'       => 1,
+	}
 );
 
 {
@@ -76,7 +103,14 @@ sub parse {
 	}
 
 	if ($@) {
-		Carp::confess("Error while parsing playlist: [$@]");
+		Carp::confess("Error while parsing playlist: [$@]\n");
+		return undef;
+	}
+
+	# Playlists MUST have a <trackList> element (even if it's empty version 1)
+	if (!$parser->{'_xspf'}->{'trackListCount'}) {
+
+		Carp::confess("Error while parsing playlist - no trackList element!\n");
 		return undef;
 	}
 
@@ -115,7 +149,7 @@ sub toString {
 
 		for my $attribution ($self->attributions) {
 
-			$writer->dataElement('location', $attribution);
+			$writer->dataElement(@{$attribution});
 		}
 
 		$writer->endTag('attribution');
@@ -173,6 +207,20 @@ sub toString {
 sub handleStartElement {
 	my ($parser, $element, %attributes) = @_;
 
+	# Poor Man's HTML checker - XML::Parser treats elements.
+	# So look at the previous element, and if we're a single value
+	# element, fail.
+	if ($parser->{'_xspf'}->{'path'}) {
+
+		my @parts = split(/\//, $parser->{'_xspf'}->{'path'});
+		my $last  = pop @parts;
+
+		if (grep { /^$last$/ } @singleValueElements) {
+
+			Carp::confess("Found HTML markup in <$last>\n");
+		}
+	}
+
 	my $path = $parser->{'_xspf'}->{'path'} .= "/$element";
 	my $self = $parser->{'_xspf'}->{'self'};
 
@@ -185,7 +233,30 @@ sub handleStartElement {
 	# Set some default types once we encounter them.
 	if ($path eq '/playlist/attribution') {
 
+		if ($parser->{'_xspf'}->{'attributionCount'}) {
+
+			Carp::confess("Too many attribution elements in playlist!\n");
+		}
+
 		$self->set('attributions', []);
+
+		$parser->{'_xspf'}->{'attributionCount'} = 1;
+	}
+
+	if ($path eq '/playlist/meta' ||
+	    $path eq '/playlist/link') {
+
+		$self->set("${element}s", []);
+	}
+
+	if ($path eq '/playlist/trackList') {
+
+		if ($parser->{'_xspf'}->{'trackListCount'}) {
+
+			Carp::confess("Too many trackList elements in playlist!\n");
+		}
+
+		$parser->{'_xspf'}->{'trackListCount'} = 1;
 	}
 
 	# We got a track entry - create a new object for it
@@ -216,22 +287,47 @@ sub handleEndElement {
 	my $self  = $parser->{'_xspf'}->{'self'};
 
 	# These are all single value elements.
-	if ($path eq '/playlist/title'      || 
+	if ($path eq '/playlist/annotation' || 
 	    $path eq '/playlist/creator'    || 
-	    $path eq '/playlist/annotation' || 
-	    $path eq '/playlist/info'       || 
-	    $path eq '/playlist/location'   || 
+	    $path eq '/playlist/date'       || 
 	    $path eq '/playlist/identifier' || 
 	    $path eq '/playlist/image'      || 
-	    $path eq '/playlist/date'       || 
-	    $path eq '/playlist/license') {
+	    $path eq '/playlist/info'       || 
+	    $path eq '/playlist/license'    ||
+	    $path eq '/playlist/location'   || 
+	    $path eq '/playlist/title') {
 
-		$self->$element($value);
+		# There should only be one value per track according to the spec.
+		if ($self->get($element)) {
+
+			Carp::confess("Element: $path has too many values!\n");
+		}
+
+		if (_validateLinkElement($path, 'playlist', $element, $value)) {
+
+			$self->$element($value);
+		}
 	}
 
-	if ($path eq '/playlist/attribution/location') {
+	if ($path eq '/playlist/attribution/identifier' ||
+	    $path eq '/playlist/attribution/location') {
 
-		$self->append('attributions', $value);
+		if (_validateLinkElement($path, 'playlist', $element, $value)) {
+
+			$self->append('attributions', [ $element, $value ]);
+		}
+	}
+
+	if ($path eq '/playlist/meta' ||
+	    $path eq '/playlist/link') {
+
+		my $rel = $state->{'attributes'}->{'rel'};
+
+		# Check both the value and the rel for validity.
+		if (_validateLinkElement($path, 'playlist', $element, $value, $rel)) {
+
+			$self->append("${element}s", [ $rel, $value ]);
+		}
 	}
 
 	# We've hit the end of a track definition - push it onto the end of the track list.
@@ -251,26 +347,45 @@ sub handleEndElement {
 	if ($path eq '/playlist/trackList/track/location' ||
 	    $path eq '/playlist/trackList/track/identifier') {
 
-		$parser->{'_xspf'}->{'track'}->append("${element}s", $value);
+		if (_validateLinkElement($path, 'track', $element, $value)) {
+
+			$parser->{'_xspf'}->{'track'}->append("${element}s", $value);
+		}
 	}
 
 	if ($path eq '/playlist/trackList/track/meta' ||
 	    $path eq '/playlist/trackList/track/link') {
 
-		$parser->{'_xspf'}->{'track'}->append("${element}s", [ $state->{'attributes'}->{'rel'}, $value ]);
+		my $rel = $state->{'attributes'}->{'rel'};
+
+		# Check both the value and the rel for validity.
+		if (_validateLinkElement($path, 'track', $element, $value, $rel)) {
+
+			$parser->{'_xspf'}->{'track'}->append("${element}s", [ $rel, $value ]);
+		}
 	}
 
 	# Single element track values.
-	if ($path eq '/playlist/trackList/track/title' || 
-	    $path eq '/playlist/trackList/track/creator' || 
+	if ($path eq '/playlist/trackList/track/album' || 
 	    $path eq '/playlist/trackList/track/annotation' || 
-	    $path eq '/playlist/trackList/track/info' || 
+	    $path eq '/playlist/trackList/track/creator' || 
+	    $path eq '/playlist/trackList/track/duration' || 
 	    $path eq '/playlist/trackList/track/image' || 
-	    $path eq '/playlist/trackList/track/album' || 
-	    $path eq '/playlist/trackList/track/trackNum' || 
-	    $path eq '/playlist/trackList/track/duration') {
+	    $path eq '/playlist/trackList/track/info' || 
+	    $path eq '/playlist/trackList/track/title' || 
+	    $path eq '/playlist/trackList/track/trackNum') {
 
-		$parser->{'_xspf'}->{'track'}->$element($value);
+		# There should only be one value per track according to the spec.
+		if ($parser->{'_xspf'}->{'track'}->get($element)) {
+
+			Carp::confess("Element: $element has too many values!\n");
+		}
+
+		# Check for invalid URIs
+		if (_validateLinkElement($path, 'track', $element, $value)) {
+
+			$parser->{'_xspf'}->{'track'}->$element($value);
+		}
 	}
 
 	if ($path eq '/playlist') {
@@ -280,6 +395,10 @@ sub handleEndElement {
 			if (defined $state->{'attributes'}->{$attr}) {
 
 				$self->$attr($state->{'attributes'}->{$attr});
+
+			} else {
+
+				Carp::confess("Didn't find $attr in the <playlist> element!\n");
 			}
 		}
 	}
@@ -290,11 +409,25 @@ sub handleEndElement {
 }
 
 sub version {
-	shift->_getSetWithDefaults('version', \%defaults, @_);
+	my $self = shift;
+
+	if (defined $_[0] && $_[0] !~ /^[01]$/) {
+
+		Carp::confess("XSPF Version is not 0 or 1!\n");
+	}
+
+	return $self->_getSetWithDefaults('version', \%defaults, @_);
 }
 
 sub xmlns {
-	shift->_getSetWithDefaults('xmlns', \%defaults, @_);
+	my $self = shift;
+
+	if (defined $_[0] && $_[0] ne 'http://xspf.org/ns/0/') {
+
+		Carp::confess("xmlns MUST be http://xspf.org/ns/0/\n");
+	}
+
+	return $self->_getSetWithDefaults('xmlns', \%defaults, @_);
 }
 
 sub title {
@@ -312,7 +445,16 @@ sub date {
 
 	if (@_) {
 
-		$self->set('date', str2time($_[0]));
+		my $date = str2time($_[0]);
+
+		if ($date && $date =~ /^\d+$/) {
+
+			$self->set('date', $date);
+
+		} else {
+
+			Carp::confess("Invalid date: [$_[0]]\n");
+		}
 
 	} else {
 
@@ -353,6 +495,31 @@ sub links {
 
 sub attributions {
 	shift->_asArray('attributions', @_);
+}
+
+sub _validateLinkElement {
+	my ($path, $parent, $element, $value, $rel) = @_;
+
+	if ($uriElements{$parent}->{$element}) {
+
+		if (!_isValidURI($value)) {
+			Carp::confess("Element: $path ($value) is not a valid URI!\n");
+		}
+
+		if ($rel && !_isValidURI($rel)) {
+
+			Carp::confess("Element: $path rel ($rel) value is not a valid URI!\n");
+		}
+	}
+
+	return 1;
+}
+
+sub _isValidURI {
+	my $uri = shift;
+
+	return if $uri =~ /[^a-z0-9\:\/\?\#\[\]\@\!\$\&\'\(\)\*\+\,\;\=\.\-\_\~]/i;
+	return 1;
 }
 
 1;
