@@ -1,5 +1,8 @@
 Revision history for Perl extension XML::XSPF.
 
+0.7   Sat Nov  8 15:46:07 PST 2008
+	- Fix http://rt.cpan.org/Ticket/Display.html?id=36778
+
 0.6   Mon May  8 10:29:46 PDT 2006
 
 	- Pass & Fail all testcases from

@@ -14,7 +14,7 @@ use XML::Writer;
 
 use XML::XSPF::Track;
 
-our $VERSION  = '0.6';
+our $VERSION  = '0.7';
 
 our %defaults = (
 	'version' => 1,
@@ -199,7 +199,8 @@ sub toString {
 	$writer->end;
 
 	# Don't escape these. XML::Writer provides some basic escaping, but not all.
-	$string = encode_entities($string, '^\n\r\t !\#\$%\(-;=?-~<>&"');
+	# http://rt.cpan.org/Ticket/Display.html?id=36778
+	# $string = encode_entities($string, '^\n\r\t !\#\$%\(-;=?-~<>&"');
 
 	return $string;
 }
@@ -616,11 +617,12 @@ Call ->title, ->creator, ->trackList, etc to get the values for the correspondin
 
 =head1 AUTHOR
 
-Dan Sully E<lt>dan | at | slimdevices.comE<gt> & Slim Devices, Inc.
+Dan Sully E<lt>daniel | at | cpan.orgE<gt> & Slim Devices, Inc.
 
 =head1 COPYRIGHT AND LICENSE
 
 Copyright (c) 2006 Dan Sully & Slim Devices, Inc. All rights reserved. 
+Copyright (c) 2006-2008 Dan Sully. All rights reserved. 
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.6 or,
